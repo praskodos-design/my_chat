@@ -19,11 +19,57 @@ client = OpenAI(
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
-# --- CSS СТИЛИ ---
+# --- CSS СТИЛИ (ПРИНУДИТЕЛЬНАЯ ТЁМНАЯ ТЕМА) ---
 st.markdown(
     """
 <style>
-    /* 1. Полностью скрываем иконки человека и робота */
+    /* 1. Принудительная тёмная тема для всего приложения */
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"],
+    [data-testid="stBottom"],
+    [data-testid="stBottom"] > div {
+        background-color: #0e1117 !important;
+        color: #fafafa !important;
+    }
+
+    /* Тёмная боковая панель и текст в ней */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div {
+        background-color: #161a24 !important;
+        color: #fafafa !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: #fafafa !important;
+    }
+
+    /* Заголовки и обычный текст */
+    h1, h2, h3, p, span, label, div {
+        color: #fafafa;
+    }
+
+    /* Поле ввода сообщения снизу */
+    [data-testid="stChatInput"] {
+        background-color: #1e222d !important;
+        border-color: #313646 !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        color: #ffffff !important;
+        background-color: #1e222d !important;
+    }
+
+    /* Кнопки в боковой панели */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: #262b38 !important;
+        color: #ffffff !important;
+        border: 1px solid #363d4f !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #32394a !important;
+        border-color: #4b556e !important;
+    }
+
+    /* 2. Полностью скрываем иконки человека и робота */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
     [data-testid="stChatMessageAvatarUser"],
@@ -32,7 +78,7 @@ st.markdown(
         display: none !important;
     }
 
-    /* 2. Общий вид пузырей сообщений */
+    /* 3. Общий вид пузырей сообщений */
     [data-testid="stChatMessage"] {
         padding: 12px 18px !important;
         border-radius: 16px !important;
@@ -42,7 +88,7 @@ st.markdown(
         border: none !important;
     }
 
-    /* 3. Сообщения пользователя: справа, синий фон, белые буквы */
+    /* 4. Сообщения пользователя: справа, синий фон, белые буквы */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         background-color: #2b7fff !important;
@@ -55,26 +101,27 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* 4. Сообщения бота: слева, светло-серый фон, черные буквы */
+    /* 5. Сообщения бота: слева, насыщенный тёмно-серый фон, светлые буквы */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-        background-color: #f0f2f6 !important;
-        color: #000000 !important;
+        background-color: #262934 !important;
+        color: #f0f2f6 !important;
         margin-right: auto !important;
         margin-left: 0 !important;
     }
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) *,
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) * {
-        color: #000000 !important;
+        color: #f0f2f6 !important;
     }
 
-    /* 5. Кнопки редактирования и перегенерации */
-    .stButton > button {
+    /* 6. Кнопки редактирования и перегенерации внутри сообщений */
+    [data-testid="stChatMessage"] .stButton > button {
         padding: 2px 8px !important;
         font-size: 14px !important;
         border-radius: 8px !important;
         min-height: 28px !important;
-        background-color: rgba(0, 0, 0, 0.08) !important;
+        background-color: rgba(255, 255, 255, 0.12) !important;
+        color: #ffffff !important;
         border: none !important;
     }
 </style>
@@ -156,7 +203,7 @@ if st.session_state.current_chat_id:
                         key=f"text_{message['id']}",
                         label_visibility="collapsed",
                     )
-                    col1, col2 = st.columns([1, 1])
+                    col1, col2 = st.columns()
                     with col1:
                         if st.button(
                             "Сохранить", key=f"save_{message['id']}", type="primary"
