@@ -9,30 +9,37 @@ API_KEY = st.secrets["API_KEY"]
 MODEL_NAME = "openai/gpt-oss-120b"
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
+client = OpenAI(
+    api_key=API_KEY,
+    base_url="https://api.groq.com/openai/v1",
+)
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
-# --- CSS СТИЛИ ---
+# --- CSS СТИЛИ (Принудительная магия) ---
 st.markdown(
     """
 <style>
+    /* 1. Убираем аватарки намертво */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
     .stChatMessageAvatar {
         display: none !important;
     }
 
+    /* 2. Настройка пузырей */
     [data-testid="stChatMessage"] {
-        padding: 15px 20px;
-        border-radius: 15px;
-        margin-bottom: 10px;
-        max-width: 85%;
+        padding: 15px 20px !important;
+        border-radius: 15px !important;
+        margin-bottom: 10px !important;
+        max-width: 85% !important;
         border: none !important;
     }
 
+    /* 3. Сообщения пользователя (Синий фон, белый текст, справа) */
     [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-user"]) {
         background-color: #2b7fff !important;
         color: white !important;
@@ -43,6 +50,7 @@ st.markdown(
         color: white !important;
     }
 
+    /* 4. Сообщения бота (Серый фон, черный текст, слева) */
     [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-assistant"]) {
         background-color: #f0f2f6 !important;
         color: black !important;
@@ -53,6 +61,7 @@ st.markdown(
         color: black !important;
     }
 
+    /* 5. Маленькие аккуратные кнопки */
     .stButton > button {
         padding: 2px 8px !important;
         font-size: 14px !important;
@@ -66,6 +75,7 @@ st.markdown(
 
 st.title("Мой личный ChatGPT")
 
+# --- ИНИЦИАЛИЗАЦИЯ ПЕРЕМЕННЫХ ---
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
 if "edit_message_id" not in st.session_state:
@@ -73,12 +83,15 @@ if "edit_message_id" not in st.session_state:
 if "rerun_prompt" not in st.session_state:
     st.session_state.rerun_prompt = None
 
+# --- БОКОВАЯ ПАНЕЛЬ ---
 with st.sidebar:
     st.header("Мои чаты")
+
     if st.button("➕ Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
         st.session_state.edit_message_id = None
         st.rerun()
+
     st.divider()
 
     try:
@@ -103,8 +116,8 @@ with st.sidebar:
                 st.session_state.edit_message_id = None
                 st.rerun()
 
+# --- ОСНОВНОЙ ЧАТ ---
 history = []
-
 if st.session_state.current_chat_id:
     try:
         history = (
@@ -120,45 +133,41 @@ if st.session_state.current_chat_id:
 
     for i, message in enumerate(history):
         with st.chat_message(message["role"]):
-            if (
-                message["role"] == "user"
-                and st.session_state.edit_message_id != message["id"]
-            ):
-                st.write(message["content"])
-                if st.button("✏️", key=f"edit_{message['id']}"):
-                    st.session_state.edit_message_id = message["id"]
-                    st.rerun()
-
-            elif (
-                message["role"] == "user"
-                and st.session_state.edit_message_id == message["id"]
-            ):
-                new_text = st.text_area(
-                    "Редактировать",
-                    value=message["content"],
-                    key=f"text_{message['id']}",
-                    label_visibility="collapsed",
-                )
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    if st.button(
-                        "Сохранить", key=f"save_{message['id']}", type="primary"
-                    ):
-                        supabase.table("messages").update({"content": new_text}).eq(
-                            "id", message["id"]
-                        ).execute()
-                        for msg_to_delete in history[i + 1 :]:
-                            supabase.table("messages").delete().eq(
-                                "id", msg_to_delete["id"]
-                            ).execute()
-                        st.session_state.edit_message_id = None
-                        st.session_state.rerun_prompt = new_text
+            # Сообщение пользователя
+            if message["role"] == "user":
+                if st.session_state.edit_message_id != message["id"]:
+                    st.write(message["content"])
+                    if st.button("✏️", key=f"edit_{message['id']}"):
+                        st.session_state.edit_message_id = message["id"]
                         st.rerun()
-                with col2:
-                    if st.button("Отмена", key=f"cancel_{message['id']}"):
-                        st.session_state.edit_message_id = None
-                        st.rerun()
+                else:
+                    new_text = st.text_area(
+                        "Редактировать",
+                        value=message["content"],
+                        key=f"text_{message['id']}",
+                        label_visibility="collapsed",
+                    )
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        if st.button(
+                            "Сохранить", key=f"save_{message['id']}", type="primary"
+                        ):
+                            supabase.table("messages").update(
+                                {"content": new_text}
+                            ).eq("id", message["id"]).execute()
+                            for msg_to_delete in history[i + 1 :]:
+                                supabase.table("messages").delete().eq(
+                                    "id", msg_to_delete["id"]
+                                ).execute()
+                            st.session_state.edit_message_id = None
+                            st.session_state.rerun_prompt = new_text
+                            st.rerun()
+                    with col2:
+                        if st.button("Отмена", key=f"cancel_{message['id']}"):
+                            st.session_state.edit_message_id = None
+                            st.rerun()
 
+            # Сообщение ассистента
             elif message["role"] == "assistant":
                 st.write(message["content"])
                 if i == len(history) - 1 and len(history) >= 2:
@@ -174,21 +183,25 @@ if st.session_state.current_chat_id:
                         st.session_state.rerun_prompt = prev_user_msg
                         st.rerun()
 
-prompt = st.chat_input("Напишите сообщение...") or st.session_state.rerun_prompt
+# --- ЛОГИКА ОТПРАВКИ И ГЕНЕРАЦИИ ---
+prompt = st.chat_input("Напишите сообщение...")
+is_rerun = False
+
+if not prompt and st.session_state.rerun_prompt:
+    prompt = st.session_state.rerun_prompt
+    is_rerun = True
 
 if prompt:
     st.session_state.rerun_prompt = None
 
-    if not st.session_state.current_chat_id or (
-        history and history[-1]["role"] == "assistant"
-    ):
-        if not st.session_state.current_chat_id:
-            st.session_state.current_chat_id = str(uuid.uuid4())
-            new_title = prompt[:30] + "..." if len(prompt) > 30 else prompt
-            supabase.table("chats").insert(
-                {"id": st.session_state.current_chat_id, "title": new_title}
-            ).execute()
+    if not st.session_state.current_chat_id:
+        st.session_state.current_chat_id = str(uuid.uuid4())
+        new_title = prompt[:30] + "..." if len(prompt) > 30 else prompt
+        supabase.table("chats").insert(
+            {"id": st.session_state.current_chat_id, "title": new_title}
+        ).execute()
 
+    if not is_rerun:
         supabase.table("messages").insert(
             {
                 "session_id": st.session_state.current_chat_id,
