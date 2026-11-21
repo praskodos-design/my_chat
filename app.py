@@ -149,23 +149,23 @@ for i, message in merate(history):
                                                                                                                         st.write(prompt)
                                                                                                                         
                                                                                                                         try:
-        history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
-    except: history = []
-
-    messages_for_api = [{"role": m["role"], "content": m["content"]} for m in history]
-
-    with st.chat_message("assistant"):
-        stream = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages_for_api,
-            stream=True,
-        )
-        response = st.write_stream(stream)
-   
-    supabase.table("messages").insert({
-        "session_id": st.session_state.current_chat_id,
-        "role": "assistant",
-        "content": response
-    }).execute()
-   
-    st.rerun()
+                                                                                                                                history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
+                                                                                                                                except: history = []
+                                                                                                                                        
+                                                                                                                        messages_for_api = [{"role": m["role"], "content": m["content"]} for m in history]
+                                                                                                                
+                                                                                                        with st.chat_message("assistant"):
+                                                                                                                stream = client.chat.completions.create(
+                                                                                                                        model=MODEL_NAME,
+                                                                                                                        messages=messages_for_api,
+                                                                                                                        stream=True,
+                                                                                                                )
+                                                                                                                response = st.write_stream(stream)
+                                                                                                                
+                                                                                                                supabase.table("messages").insert({
+                                                                                                                        "session_id": st.session_state.current_chat_id,
+                                                                                                                        "role": "assistant",
+                                                                                                                        "content": response
+                                                                                                                }).execute()
+                                                                                                                
+                                                                                                                st.rerun()
