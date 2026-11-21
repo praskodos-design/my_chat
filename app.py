@@ -282,23 +282,20 @@ if prompt:
         history = []
 
     messages_for_api = [
-        {"role": m["role"], "content": m["content"]} for m in history
+        {"role": m["role"], "content": m["content"]}
+        for m in history
+        if m.get("content")
     ]
 
+    # Убираем висящие в конце ответы бота, если база не успела обновиться
+    while messages_for_api and messages_for_api[-1]["role"] != "user":
+        messages_for_api.pop()
+
+    if not messages_for_api:
+        messages_for_api = [{"role": "user", "content": prompt}]
+
     with st.chat_message("assistant"):
-        stream = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages_for_api,
-            stream=True,
-        )
-        response = st.write_stream(stream)
-
-    supabase.table("messages").insert(
-        {
-            "session_id": st.session_state.current_chat_id,
-            "role": "assistant",
-            "content": response,
-        }
-    ).execute()
-
-    st.rerun()
+        try:
+            stream = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages_for_api,
