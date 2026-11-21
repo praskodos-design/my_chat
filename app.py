@@ -3,7 +3,7 @@ from openai import OpenAI
 
 # --- НАСТРОЙКИ ---
 # Вставьте сюда ваш API-ключ от Groq
-API_KEY = "gsk_..."
+API_KEY = st.secrets["API_KEY"]
 # Модель Groq (например, llama-3.3-70b-versatile)
 MODEL_NAME = "openai/gpt-oss-120b"
 
