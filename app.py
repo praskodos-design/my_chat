@@ -14,59 +14,68 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 client = OpenAI(
     api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1",
+    base_url="https://groq.com",
 )
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
-# --- CSS СТИЛИ (Принудительная магия) ---
+# --- CSS СТИЛИ ---
 st.markdown(
     """
 <style>
-    /* 1. Убираем аватарки намертво */
+    /* 1. Полностью скрываем иконки человека и робота */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
+    [data-testid="stChatMessageAvatarUser"],
+    [data-testid="stChatMessageAvatarAssistant"],
     .stChatMessageAvatar {
         display: none !important;
     }
 
-    /* 2. Настройка пузырей */
+    /* 2. Общий вид пузырей сообщений */
     [data-testid="stChatMessage"] {
-        padding: 15px 20px !important;
-        border-radius: 15px !important;
+        padding: 12px 18px !important;
+        border-radius: 16px !important;
         margin-bottom: 10px !important;
-        max-width: 85% !important;
+        max-width: 75% !important;
+        width: fit-content !important;
         border: none !important;
     }
 
-    /* 3. Сообщения пользователя (Синий фон, белый текст, справа) */
-    [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-user"]) {
+    /* 3. Сообщения пользователя: справа, синий фон, белые буквы */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         background-color: #2b7fff !important;
-        color: white !important;
+        color: #ffffff !important;
         margin-left: auto !important;
         margin-right: 0 !important;
     }
-    [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-user"]) * {
-        color: white !important;
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) *,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) * {
+        color: #ffffff !important;
     }
 
-    /* 4. Сообщения бота (Серый фон, черный текст, слева) */
-    [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-assistant"]) {
+    /* 4. Сообщения бота: слева, светло-серый фон, черные буквы */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #f0f2f6 !important;
-        color: black !important;
+        color: #000000 !important;
         margin-right: auto !important;
         margin-left: 0 !important;
     }
-    [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-assistant"]) * {
-        color: black !important;
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) *,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) * {
+        color: #000000 !important;
     }
 
-    /* 5. Маленькие аккуратные кнопки */
+    /* 5. Кнопки редактирования и перегенерации */
     .stButton > button {
         padding: 2px 8px !important;
         font-size: 14px !important;
         border-radius: 8px !important;
-        min-height: 30px !important;
+        min-height: 28px !important;
+        background-color: rgba(0, 0, 0, 0.08) !important;
+        border: none !important;
     }
 </style>
 """,
