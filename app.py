@@ -114,15 +114,18 @@ st.markdown(
         color: #f0f2f6 !important;
     }
 
-    /* 6. Кнопки редактирования и перегенерации внутри сообщений */
+    /* 6. Строгие компактные кнопки действий и стрелок */
     [data-testid="stChatMessage"] .stButton > button {
         padding: 2px 8px !important;
-        font-size: 14px !important;
+        font-size: 13px !important;
         border-radius: 8px !important;
         min-height: 28px !important;
-        background-color: rgba(255, 255, 255, 0.12) !important;
+        background-color: rgba(255, 255, 255, 0.08) !important;
         color: #ffffff !important;
-        border: none !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }
+    [data-testid="stChatMessage"] .stButton > button:hover {
+        background-color: rgba(255, 255, 255, 0.18) !important;
     }
 </style>
 """,
@@ -138,12 +141,29 @@ if "edit_message_id" not in st.session_state:
     st.session_state.edit_message_id = None
 if "rerun_prompt" not in st.session_state:
     st.session_state.rerun_prompt = None
+if "variant_indices" not in st.session_state:
+    st.session_state.variant_indices = {}
+
+def group_messages(raw_history):
+    """Группирует подряд идущие ответы бота в варианты (версии) одного ответа."""
+    grouped = []
+    for msg in raw_history:
+        if msg["role"] == "assistant" and grouped and grouped[-1]["role"] == "assistant":
+            grouped[-1]["variants"].append(msg)
+        else:
+            grouped.append(
+                {
+                    "role": msg["role"],
+                    "variants": [msg],
+                }
+            )
+    return grouped
 
 # --- БОКОВАЯ ПАНЕЛЬ ---
 with st.sidebar:
     st.header("Мои чаты")
 
-    if st.button("➕ Новый чат", use_container_width=True):
+    if st.button("Новый чат", icon=":material/add:", use_container_width=True):
         st.session_state.current_chat_id = None
         st.session_state.edit_message_id = None
         st.rerun()
@@ -166,17 +186,22 @@ with st.sidebar:
     else:
         for chat in chats:
             if st.button(
-                f"💬 {chat['title']}", key=chat["id"], use_container_width=True
+                chat["title"],
+                icon=":material/chat_bubble_outline:",
+                key=chat["id"],
+                use_container_width=True,
             ):
                 st.session_state.current_chat_id = chat["id"]
                 st.session_state.edit_message_id = None
                 st.rerun()
 
 # --- ОСНОВНОЙ ЧАТ ---
-history = []
+raw_history = []
+grouped_history = []
+
 if st.session_state.current_chat_id:
     try:
-        history = (
+        raw_history = (
             supabase.table("messages")
             .select("*")
             .eq("session_id", st.session_state.current_chat_id)
@@ -185,15 +210,26 @@ if st.session_state.current_chat_id:
             .data
         )
     except Exception:
-        history = []
+        raw_history = []
 
-    for i, message in enumerate(history):
-        with st.chat_message(message["role"]):
-            # Сообщение пользователя
-            if message["role"] == "user":
+    grouped_history = group_messages(raw_history)
+
+    for i, item in enumerate(grouped_history):
+        role = item["role"]
+        variants = item["variants"]
+
+        # Сообщение пользователя
+        if role == "user":
+            message = variants[0]
+            with st.chat_message("user"):
                 if st.session_state.edit_message_id != message["id"]:
                     st.write(message["content"])
-                    if st.button("✏️", key=f"edit_{message['id']}"):
+                    if st.button(
+                        "",
+                        icon=":material/edit:",
+                        key=f"edit_{message['id']}",
+                        help="Редактировать сообщение",
+                    ):
                         st.session_state.edit_message_id = message["id"]
                         st.rerun()
                 else:
@@ -203,7 +239,7 @@ if st.session_state.current_chat_id:
                         key=f"text_{message['id']}",
                         label_visibility="collapsed",
                     )
-                    col1, col2 = st.columns()
+                    col1, col2 = st.columns([1, 1])
                     with col1:
                         if st.button(
                             "Сохранить", key=f"save_{message['id']}", type="primary"
@@ -211,10 +247,14 @@ if st.session_state.current_chat_id:
                             supabase.table("messages").update(
                                 {"content": new_text}
                             ).eq("id", message["id"]).execute()
-                            for msg_to_delete in history[i + 1 :]:
-                                supabase.table("messages").delete().eq(
-                                    "id", msg_to_delete["id"]
-                                ).execute()
+
+                            # Удаляем все последующие сообщения и варианты в ветке
+                            for next_item in grouped_history[i + 1 :]:
+                                for v in next_item["variants"]:
+                                    supabase.table("messages").delete().eq(
+                                        "id", v["id"]
+                                    ).execute()
+
                             st.session_state.edit_message_id = None
                             st.session_state.rerun_prompt = new_text
                             st.rerun()
@@ -223,71 +263,47 @@ if st.session_state.current_chat_id:
                             st.session_state.edit_message_id = None
                             st.rerun()
 
-            # Сообщение ассистента
-            elif message["role"] == "assistant":
-                st.write(message["content"])
-                if i == len(history) - 1 and len(history) >= 2:
-                    if st.button(
-                        "🔄",
-                        key=f"regen_{message['id']}",
-                        help="Сгенерировать заново",
-                    ):
-                        prev_user_msg = history[-2]["content"]
-                        supabase.table("messages").delete().eq(
-                            "id", message["id"]
-                        ).execute()
-                        st.session_state.rerun_prompt = prev_user_msg
-                        st.rerun()
+        # Сообщение ассистента (с поддержкой переключения вариантов)
+        elif role == "assistant":
+            group_key = str(variants[0]["id"])
+            total_variants = len(variants)
 
-# --- ЛОГИКА ОТПРАВКИ И ГЕНЕРАЦИИ ---
-prompt = st.chat_input("Напишите сообщение...")
-is_rerun = False
+            # По умолчанию показываем самый последний сгенерированный вариант
+            if group_key not in st.session_state.variant_indices:
+                st.session_state.variant_indices[group_key] = total_variants - 1
 
-if not prompt and st.session_state.rerun_prompt:
-    prompt = st.session_state.rerun_prompt
-    is_rerun = True
+            current_idx = st.session_state.variant_indices[group_key]
+            if current_idx >= total_variants:
+                current_idx = total_variants - 1
+                st.session_state.variant_indices[group_key] = current_idx
 
-if prompt:
-    st.session_state.rerun_prompt = None
+            active_message = variants[current_idx]
 
-    if not st.session_state.current_chat_id:
-        st.session_state.current_chat_id = str(uuid.uuid4())
-        new_title = prompt[:30] + "..." if len(prompt) > 30 else prompt
-        supabase.table("chats").insert(
-            {"id": st.session_state.current_chat_id, "title": new_title}
-        ).execute()
+            with st.chat_message("assistant"):
+                st.write(active_message["content"])
 
-    if not is_rerun:
-        supabase.table("messages").insert(
-            {
-                "session_id": st.session_state.current_chat_id,
-                "role": "user",
-                "content": prompt,
-            }
-        ).execute()
+                # Панель управления под ответом: стрелки переключения и кнопка обновления
+                is_last_block = i == len(grouped_history) - 1
+                has_multiple = total_variants > 1
 
-        with st.chat_message("user"):
-            st.write(prompt)
+                if has_multiple or is_last_block:
+                    cols = st.columns([1, 1.3, 1, 1])
+    grouped_for_api = group_messages(raw_history)
+    messages_for_api = []
 
-    try:
-        history = (
-            supabase.table("messages")
-            .select("*")
-            .eq("session_id", st.session_state.current_chat_id)
-            .order("created_at")
-            .execute()
-            .data
-        )
-    except Exception:
-        history = []
+    for item in grouped_for_api:
+        variants = item["variants"]
+        group_key = str(variants[0]["id"])
+       
+        # Для пользователя берём единственное сообщение (индекс 0),
+        # для бота — выбранный стрелками вариант (по умолчанию последний)
+        default_idx = len(variants) - 1 if item["role"] == "assistant" else 0
+        idx = min(st.session_state.variant_indices.get(group_key, default_idx), len(variants) - 1)
+       
+        if content := variants[idx].get("content"):
+            messages_for_api.append({"role": item["role"], "content": content})
 
-    messages_for_api = [
-        {"role": m["role"], "content": m["content"]}
-        for m in history
-        if m.get("content")
-    ]
-
-    # Убираем висящие в конце ответы бота, если база не успела обновиться
+    # При перегенерации убираем с конца прошлые ответы бота, чтобы последним был запрос пользователя
     while messages_for_api and messages_for_api[-1]["role"] != "user":
         messages_for_api.pop()
 
@@ -299,3 +315,19 @@ if prompt:
             stream = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages_for_api,
+                stream=True,
+            )
+            response = st.write_stream(stream)
+        except Exception as e:
+            st.error(f"Ошибка при обращении к Groq: {e}")
+            st.stop()
+
+    supabase.table("messages").insert(
+        {
+            "session_id": st.session_state.current_chat_id,
+            "role": "assistant",
+            "content": response,
+        }
+    ).execute()
+
+    st.rerun()
