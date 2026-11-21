@@ -51,6 +51,7 @@ st.markdown(
         background-color: #1e222d !important;
     }
 
+    /* Обычные кнопки в сайдбаре */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #262b38 !important;
         color: #ffffff !important;
@@ -59,6 +60,29 @@ st.markdown(
     [data-testid="stSidebar"] .stButton > button:hover {
         background-color: #32394a !important;
         border-color: #4b556e !important;
+    }
+
+    /* Маленькие иконки-кнопки рядом с чатами (булавка, крестик) */
+    .chat-actions .stButton > button {
+        padding: 0 !important;
+        min-height: 26px !important;
+        min-width: 26px !important;
+        background: transparent !important;
+        color: #9aa0b0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        font-size: 13px !important;
+    }
+    .chat-actions .stButton > button:hover {
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        color: #ffffff !important;
+    }
+
+    /* Тонкая полоска-разделитель между закреплёнными и обычными чатами */
+    .thin-divider {
+        border: none;
+        border-top: 1px solid #2a2f3d;
+        margin: 8px 0;
     }
 
     /* Скрываем аватары пользователя и бота */
@@ -106,7 +130,7 @@ st.markdown(
         color: #f0f2f6 !important;
     }
 
-    /* Маленькие невидимые кнопки-иконки под сообщениями */
+    /* Кнопки под сообщениями */
     [data-testid="stChatMessage"] .stButton > button {
         padding: 2px 6px !important;
         min-height: 26px !important;
@@ -125,7 +149,6 @@ st.markdown(
         opacity: 0.3 !important;
     }
 
-    /* Счётчик вариантов */
     .variant-counter {
         color: #9aa0b0;
         font-size: 13px;
@@ -148,9 +171,11 @@ if "edit_message_id" not in st.session_state:
 if "regenerate" not in st.session_state:
     st.session_state.regenerate = False
 if "variant_indices" not in st.session_state:
-    st.session_state.variant_indices = {}  # какой вариант выбрал пользователь стрелками
+    st.session_state.variant_indices = {}
 if "variant_seen" not in st.session_state:
-    st.session_state.variant_seen = {}     # сколько вариантов группы видели в прошлый раз
+    st.session_state.variant_seen = {}
+if "confirm_delete_id" not in st.session_state:
+    st.session_state.confirm_delete_id = None
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -201,7 +226,7 @@ def save_user_message(prompt_text):
     if st.session_state.current_chat_id is None:
         new_id = str(uuid.uuid4())
         supabase.table("chats").insert(
-            {"id": new_id, "title": prompt_text[:50]}
+            {"id": new_id, "title": prompt_text[:50], "pinned": False}
         ).execute()
         st.session_state.current_chat_id = new_id
 
@@ -239,7 +264,6 @@ def generate_reply(messages_for_api):
 
 
 def run_regeneration():
-    """Убирает из контекста прошлые ответы бота и генерирует новый вариант."""
     raw_history = load_history(st.session_state.current_chat_id)
     messages_for_api = build_api_context(raw_history)
 
@@ -251,15 +275,82 @@ def run_regeneration():
         generate_reply(messages_for_api)
 
 
+def reset_chat_view():
+    st.session_state.edit_message_id = None
+    st.session_state.variant_indices = {}
+    st.session_state.variant_seen = {}
+
+
+def delete_chat(chat_id):
+    """Удаляет чат и все его сообщения."""
+    supabase.table("messages").delete().eq("session_id", chat_id).execute()
+    supabase.table("chats").delete().eq("id", chat_id).execute()
+    if st.session_state.current_chat_id == chat_id:
+        st.session_state.current_chat_id = None
+    reset_chat_view()
+    st.rerun()
+
+
+def render_chat_row(chat, pinned_view):
+    """Рисует строку одного чата в сайдбаре: название + кнопки булавки и удаления."""
+    chat_id = chat["id"]
+    is_pinned = bool(chat.get("pinned"))
+    is_active = st.session_state.current_chat_id == chat_id
+    confirming = st.session_state.confirm_delete_id == chat_id
+
+    cols = st.columns([0.72, 0.14, 0.14], gap="small")
+
+    with cols[0]:
+        label = f"📌 {chat['title']}" if is_pinned else chat["title"]
+        if st.button(
+            label,
+            key=f"chat_{chat_id}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state.current_chat_id = chat_id
+            reset_chat_view()
+            st.rerun()
+
+    with cols[1]:
+        pin_label = "🔒" if is_pinned else "📌"
+        if st.button(
+            pin_label,
+            key=f"pin_{chat_id}",
+            help="Открепить" if is_pinned else "Закрепить",
+        ):
+            supabase.table("chats").update(
+                {"pinned": not is_pinned}
+            ).eq("id", chat_id).execute()
+            st.rerun()
+
+    with cols[2]:
+        if confirming:
+            if st.button("✓", key=f"confirm_{chat_id}", help="Подтвердить удаление"):
+                st.session_state.confirm_delete_id = None
+                delete_chat(chat_id)
+        else:
+            if st.button("✕", key=f"del_{chat_id}", help="Удалить чат"):
+                st.session_state.confirm_delete_id = chat_id
+                st.rerun()
+
+    if confirming:
+        if st.button(
+            "Точно удалить этот чат?",
+            key=f"cancel_del_{chat_id}",
+            use_container_width=True,
+        ):
+            st.session_state.confirm_delete_id = None
+            st.rerun()
+
+
 # --- БОКОВАЯ ПАНЕЛЬ ---
 with st.sidebar:
     st.header("Мои чаты")
 
     if st.button("Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
-        st.session_state.edit_message_id = None
-        st.session_state.variant_indices = {}
-        st.session_state.variant_seen = {}
+        reset_chat_view()
         st.rerun()
 
     st.divider()
@@ -279,17 +370,18 @@ with st.sidebar:
     if not chats:
         st.write("История пуста.")
     else:
-        for chat in chats:
-            if st.button(
-                chat["title"],
-                key=f"chat_{chat['id']}",
-                use_container_width=True,
-            ):
-                st.session_state.current_chat_id = chat["id"]
-                st.session_state.edit_message_id = None
-                st.session_state.variant_indices = {}
-                st.session_state.variant_seen = {}
-                st.rerun()
+        pinned_chats = [c for c in chats if c.get("pinned")]
+        regular_chats = [c for c in chats if not c.get("pinned")]
+
+        for chat in pinned_chats:
+            render_chat_row(chat, pinned_view=True)
+
+        # Тонкая полоска между закреплёнными и обычными чатами
+        if pinned_chats and regular_chats:
+            st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
+
+        for chat in regular_chats:
+            render_chat_row(chat, pinned_view=False)
 
 # --- ОТРИСОВКА ИСТОРИИ ---
 if st.session_state.current_chat_id:
@@ -327,7 +419,6 @@ if st.session_state.current_chat_id:
                                 {"content": new_text}
                             ).eq("id", message["id"]).execute()
 
-                            # Удаляем всё, что шло после этого сообщения
                             for next_item in grouped_history[i + 1 :]:
                                 for v in next_item["variants"]:
                                     supabase.table("messages").delete().eq(
@@ -347,8 +438,6 @@ if st.session_state.current_chat_id:
             group_key = str(variants[0]["id"])
             total = len(variants)
 
-            # Если вариантов стало больше — показываем самый свежий,
-            # иначе оставляем выбор пользователя (или тоже самый свежий)
             seen = st.session_state.variant_seen.get(group_key)
             if seen is None or total > seen:
                 idx = total - 1
