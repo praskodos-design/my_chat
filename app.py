@@ -80,7 +80,8 @@ with st.sidebar:
                 
                 try:
                         chats = supabase.table("chats").select("*").order("created_at", desc=True).execute().data
-                        except: chats = []
+                        except:
+                                chats = []
                                 
                 if not chats:
                         st.write("История пуста.")
