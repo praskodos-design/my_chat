@@ -51,7 +51,6 @@ st.markdown(
         background-color: #1e222d !important;
     }
 
-    /* Кнопки чатов в сайдбаре */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #262b38 !important;
         color: #ffffff !important;
@@ -62,28 +61,12 @@ st.markdown(
         border-color: #4b556e !important;
     }
 
-    /* Маленькие кнопки-действия (закрепить/удалить) */
-    .chat-action .stButton > button {
-        padding: 2px 8px !important;
-        min-height: 26px !important;
-        background: transparent !important;
-        color: #9aa0b0 !important;
-        border: 1px solid #363d4f !important;
-        font-size: 13px !important;
-    }
-    .chat-action .stButton > button:hover {
-        background-color: rgba(255, 255, 255, 0.08) !important;
-        color: #ffffff !important;
-    }
-
-    /* Тонкая полоска между закреплёнными и обычными чатами */
     .thin-divider {
         border: none;
         border-top: 1px solid #2a2f3d;
         margin: 8px 0;
     }
 
-    /* Скрываем аватары пользователя и бота */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
     [data-testid="stChatMessageAvatarUser"],
@@ -92,7 +75,6 @@ st.markdown(
         display: none !important;
     }
 
-    /* Пузыри сообщений */
     [data-testid="stChatMessage"] {
         padding: 12px 18px !important;
         border-radius: 16px !important;
@@ -102,7 +84,6 @@ st.markdown(
         border: none !important;
     }
 
-    /* Пользователь: справа, синий */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         background-color: #2b7fff !important;
@@ -115,7 +96,6 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* Бот: слева, тёмно-серый */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #262934 !important;
@@ -128,7 +108,6 @@ st.markdown(
         color: #f0f2f6 !important;
     }
 
-    /* Кнопки под сообщениями */
     [data-testid="stChatMessage"] .stButton > button {
         padding: 2px 6px !important;
         min-height: 26px !important;
@@ -154,6 +133,19 @@ st.markdown(
         user-select: none;
         padding-top: 3px;
     }
+
+    /* Блок с текстом ошибки базы */
+    .db-error {
+        background-color: #3d1f24;
+        border: 1px solid #a63d4a;
+        border-radius: 8px;
+        padding: 10px 14px;
+        color: #ffd7dc;
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 6px 0;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -174,6 +166,20 @@ if "variant_seen" not in st.session_state:
     st.session_state.variant_seen = {}
 if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
+
+
+def show_db_error(where: str, e: Exception):
+    """Показывает настоящий текст ошибки Postgres, который Streamlit прячет."""
+    msg = getattr(e, "message", None) or getattr(e, "args", [""]) or str(e)
+    try:
+        msg = msg[0] if isinstance(msg, tuple) else msg
+    except Exception:
+        pass
+    st.markdown(
+        f'<div class="db-error">Ошибка базы ({where}):<br>{msg}</div>',
+        unsafe_allow_html=True,
+    )
+    st.stop()
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -200,12 +206,10 @@ def load_history(chat_id):
             .data
         )
     except Exception as e:
-        st.error(f"Ошибка при загрузке истории: {e}")
-        return []
+        show_db_error("load_history", e)
 
 
 def build_api_context(raw_history):
-    """Собирает контекст для API из выбранных вариантов ответов."""
     messages = []
     for item in group_messages(raw_history):
         variants = item["variants"]
@@ -220,24 +224,59 @@ def build_api_context(raw_history):
     return messages
 
 
-def save_user_message(prompt_text):
-    if st.session_state.current_chat_id is None:
-        new_id = str(uuid.uuid4())
+def create_chat(title: str) -> str:
+    """Создаёт чат; если колонки pinned нет — повторяет вставку без неё."""
+    new_id = str(uuid.uuid4())
+    try:
         supabase.table("chats").insert(
-            {"id": new_id, "title": prompt_text[:50], "pinned": False}
+            {"id": new_id, "title": title[:50], "pinned": False}
         ).execute()
-        st.session_state.current_chat_id = new_id
+    except Exception as e:
+        err_text = str(getattr(e, "message", "") or e)
+        if "pinned" in err_text.lower():
+            # Колонки нет в базе — вставляем без неё
+            try:
+                supabase.table("chats").insert(
+                    {"id": new_id, "title": title[:50]}
+                ).execute()
+            except Exception as e2:
+                show_db_error("create_chat (без pinned)", e2)
+        else:
+            show_db_error("create_chat", e)
+    return new_id
 
-    supabase.table("messages").insert(
-        {
-            "session_id": st.session_state.current_chat_id,
-            "role": "user",
-            "content": prompt_text,
-        }
-    ).execute()
+
+def save_user_message(prompt_text: str):
+    if st.session_state.current_chat_id is None:
+        st.session_state.current_chat_id = create_chat(prompt_text)
+
+    try:
+        supabase.table("messages").insert(
+            {
+                "session_id": st.session_state.current_chat_id,
+                "role": "user",
+                "content": prompt_text,
+            }
+        ).execute()
+    except Exception as e:
+        show_db_error("save_user_message", e)
+
+
+def save_assistant_message(content: str):
+    try:
+        supabase.table("messages").insert(
+            {
+                "session_id": st.session_state.current_chat_id,
+                "role": "assistant",
+                "content": content,
+            }
+        ).execute()
+    except Exception as e:
+        show_db_error("save_assistant_message", e)
 
 
 def generate_reply(messages_for_api):
+    """Запрашивает ответ у модели, показывает его потоком и сохраняет в базу."""
     with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
@@ -250,13 +289,7 @@ def generate_reply(messages_for_api):
             st.error(f"Ошибка при обращении к Groq: {e}")
             st.stop()
 
-    supabase.table("messages").insert(
-        {
-            "session_id": st.session_state.current_chat_id,
-            "role": "assistant",
-            "content": response,
-        }
-    ).execute()
+    save_assistant_message(response)
     st.rerun()
 
 
@@ -269,6 +302,8 @@ def run_regeneration():
 
     if messages_for_api:
         generate_reply(messages_for_api)
+    else:
+        st.warning("Нечего перегенерировать: нет сообщения пользователя.")
 
 
 def reset_chat_view():
@@ -278,11 +313,29 @@ def reset_chat_view():
 
 
 def delete_chat(chat_id):
-    supabase.table("messages").delete().eq("session_id", chat_id).execute()
-    supabase.table("chats").delete().eq("id", chat_id).execute()
+    try:
+        supabase.table("messages").delete().eq("session_id", chat_id).execute()
+        supabase.table("chats").delete().eq("id", chat_id).execute()
+    except Exception as e:
+        show_db_error("delete_chat", e)
+
     if st.session_state.current_chat_id == chat_id:
         st.session_state.current_chat_id = None
     reset_chat_view()
+    st.rerun()
+
+
+def toggle_pin(chat_id, is_pinned: bool):
+    try:
+        supabase.table("chats").update({"pinned": not is_pinned}).eq("id", chat_id).execute()
+    except Exception as e:
+        err_text = str(getattr(e, "message", "") or e)
+        if "pinned" in err_text.lower():
+            st.warning("Колонка pinned не найдена в таблице chats. Выполните в SQL Editor:\n"
+                       "alter table chats add column pinned boolean not null default false;")
+        else:
+            show_db_error("toggle_pin", e)
+        return
     st.rerun()
 
 
@@ -300,32 +353,23 @@ def render_chat_row(chat):
         reset_chat_view()
         st.rerun()
 
-    # Кнопки закрепления и удаления — только у активного (нажатого) чата
     if is_active:
         col1, col2 = st.columns([1, 1], gap="small")
-
         with col1:
             if st.button(
                 ("🔓 Открепить" if is_pinned else "📌 Закрепить"),
                 key=f"pin_{chat_id}",
                 use_container_width=True,
             ):
-                supabase.table("chats").update(
-                    {"pinned": not is_pinned}
-                ).eq("id", chat_id).execute()
-                st.rerun()
-
+                toggle_pin(chat_id, is_pinned)
         with col2:
             if st.session_state.confirm_delete_id == chat_id:
                 if st.button(
-                    "Точно удалить?", key=f"confirm_{chat_id}",
-                    use_container_width=True,
+                    "Точно удалить?", key=f"confirm_{chat_id}", use_container_width=True
                 ):
                     delete_chat(chat_id)
             else:
-                if st.button(
-                    "✕ Удалить", key=f"del_{chat_id}", use_container_width=True
-                ):
+                if st.button("✕ Удалить", key=f"del_{chat_id}", use_container_width=True):
                     st.session_state.confirm_delete_id = chat_id
                     st.rerun()
 
@@ -351,8 +395,7 @@ with st.sidebar:
             .data
         )
     except Exception as e:
-        st.error(f"Ошибка при загрузке чатов: {e}")
-        chats = []
+        show_db_error("load_chats", e)
 
     if not chats:
         st.write("История пуста.")
@@ -377,7 +420,6 @@ if st.session_state.current_chat_id:
     for i, item in enumerate(grouped_history):
         variants = item["variants"]
 
-        # --- Сообщение пользователя ---
         if item["role"] == "user":
             message = variants[0]
             with st.chat_message("user"):
@@ -401,15 +443,18 @@ if st.session_state.current_chat_id:
                         if st.button(
                             "Сохранить", key=f"save_{message['id']}", type="primary"
                         ):
-                            supabase.table("messages").update(
-                                {"content": new_text}
-                            ).eq("id", message["id"]).execute()
+                            try:
+                                supabase.table("messages").update(
+                                    {"content": new_text}
+                                ).eq("id", message["id"]).execute()
 
-                            for next_item in grouped_history[i + 1 :]:
-                                for v in next_item["variants"]:
-                                    supabase.table("messages").delete().eq(
-                                        "id", v["id"]
-                                    ).execute()
+                                for next_item in grouped_history[i + 1 :]:
+                                    for v in next_item["variants"]:
+                                        supabase.table("messages").delete().eq(
+                                            "id", v["id"]
+                                        ).execute()
+                            except Exception as e:
+                                show_db_error("edit_message", e)
 
                             st.session_state.edit_message_id = None
                             st.session_state.regenerate = True
@@ -419,7 +464,6 @@ if st.session_state.current_chat_id:
                             st.session_state.edit_message_id = None
                             st.rerun()
 
-        # --- Ответ бота с переключением вариантов ---
         else:
             group_key = str(variants[0]["id"])
             total = len(variants)
@@ -428,7 +472,10 @@ if st.session_state.current_chat_id:
             if seen is None or total > seen:
                 idx = total - 1
             else:
-                idx = min(st.session_state.variant_indices.get(group_key, total - 1), total - 1)
+                idx = min(
+                    st.session_state.variant_indices.get(group_key, total - 1),
+                    total - 1,
+                )
 
             st.session_state.variant_seen[group_key] = total
             st.session_state.variant_indices[group_key] = idx
@@ -440,13 +487,19 @@ if st.session_state.current_chat_id:
                 st.write(active["content"])
 
                 if total > 1 or is_last_block:
-                    cols = st.columns([0.4, 0.9, 0.4, 1.0]) if total > 1 else st.columns([1.0])
+                    cols = (
+                        st.columns([0.4, 0.9, 0.4, 1.0])
+                        if total > 1
+                        else st.columns([1.0])
+                    )
                     c = 0
 
                     if total > 1:
                         if cols[0].button(
-                            "‹", key=f"prev_{group_key}",
-                            disabled=(idx == 0), help="Предыдущий вариант",
+                            "‹",
+                            key=f"prev_{group_key}",
+                            disabled=(idx == 0),
+                            help="Предыдущий вариант",
                         ):
                             st.session_state.variant_indices[group_key] = idx - 1
                             st.rerun()
@@ -457,8 +510,10 @@ if st.session_state.current_chat_id:
                         )
 
                         if cols[2].button(
-                            "›", key=f"next_{group_key}",
-                            disabled=(idx == total - 1), help="Следующий вариант",
+                            "›",
+                            key=f"next_{group_key}",
+                            disabled=(idx == total - 1),
+                            help="Следующий вариант",
                         ):
                             st.session_state.variant_indices[group_key] = idx + 1
                             st.rerun()
@@ -466,7 +521,8 @@ if st.session_state.current_chat_id:
 
                     if is_last_block:
                         if cols[c].button(
-                            "⟳", key=f"regen_{group_key}",
+                            "⟳",
+                            key=f"regen_{group_key}",
                             help="Сгенерировать ещё раз",
                         ):
                             st.session_state.regenerate = True
