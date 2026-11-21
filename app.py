@@ -88,16 +88,16 @@ with st.sidebar:
                         for chat in chats:
                                 if st.button(f"💬 {chat['title']}", key=chat['id'], use_container_width=True):
                                         st.session_state.current_chat_id = chat['id']
-                                        st.session_state.edit_message_id = None
-st.rerun()
-
-if st.session_state.current_chat_id:
-    try:
-        history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
-    except: history = []
+                                        st.session_state.edit_message_id = None
+                                        st.rerun()
+                                        
+                                        if st.session_state.current_chat_id:
+                                                try:
+                                                        history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
+                                                        except: history = []
    
-    for i, message in enumerate(history):
-        with st.chat_message(message["role"]):
+for i, message in merate(history):
+        with st.chat_message(message["role"]):
             if message["role"] == "user" and st.session_state.edit_message_id != message["id"]:
                 st.write(message["content"])
                 if st.button("✏️", key=f"edit_{message['id']}"):
