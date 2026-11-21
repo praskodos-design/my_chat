@@ -71,7 +71,7 @@ if "rerun_prompt" not in st.session_state:
         st.session_state.rerun_prompt = None
 
 with st.sidebar:
-    st.header("Мои чаты")
+        st.header("Мои чаты")
     if st.button("➕ Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
         st.session_state.edit_message_id = None
