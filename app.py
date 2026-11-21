@@ -14,16 +14,15 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 client = OpenAI(
     api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1",  # FIX: был "https://groq.com"
+    base_url="https://api.groq.com/openai/v1",
 )
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
-# --- CSS СТИЛИ (ПРИНУДИТЕЛЬНАЯ ТЁМНАЯ ТЕМА) ---
+# --- CSS: ТЁМНАЯ ТЕМА ---
 st.markdown(
     """
 <style>
-    /* 1. Принудительная тёмная тема для всего приложения */
     .stApp,
     [data-testid="stAppViewContainer"],
     [data-testid="stHeader"],
@@ -33,7 +32,6 @@ st.markdown(
         color: #fafafa !important;
     }
 
-    /* Тёмная боковая панель и текст в ней */
     [data-testid="stSidebar"],
     [data-testid="stSidebar"] > div {
         background-color: #161a24 !important;
@@ -43,12 +41,10 @@ st.markdown(
         color: #fafafa !important;
     }
 
-    /* Заголовки и обычный текст */
     h1, h2, h3, p, span, label, div {
         color: #fafafa;
     }
 
-    /* Поле ввода сообщения снизу */
     [data-testid="stChatInput"] {
         background-color: #1e222d !important;
         border-color: #313646 !important;
@@ -58,7 +54,6 @@ st.markdown(
         background-color: #1e222d !important;
     }
 
-    /* Кнопки в боковой панели */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #262b38 !important;
         color: #ffffff !important;
@@ -69,7 +64,7 @@ st.markdown(
         border-color: #4b556e !important;
     }
 
-    /* 2. Полностью скрываем иконки человека и робота */
+    /* Скрываем аватары пользователя и бота */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
     [data-testid="stChatMessageAvatarUser"],
@@ -78,7 +73,7 @@ st.markdown(
         display: none !important;
     }
 
-    /* 3. Общий вид пузырей сообщений */
+    /* Пузыри сообщений */
     [data-testid="stChatMessage"] {
         padding: 12px 18px !important;
         border-radius: 16px !important;
@@ -88,7 +83,7 @@ st.markdown(
         border: none !important;
     }
 
-    /* 4. Сообщения пользователя: справа, синий фон, белые буквы */
+    /* Пользователь: справа, синий */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         background-color: #2b7fff !important;
@@ -101,7 +96,7 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* 5. Сообщения бота: слева, насыщенный тёмно-серый фон, светлые буквы */
+    /* Бот: слева, тёмно-серый */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
         background-color: #262934 !important;
@@ -114,18 +109,30 @@ st.markdown(
         color: #f0f2f6 !important;
     }
 
-    /* 6. Строгие компактные кнопки действий и стрелок */
+    /* Маленькие «тонкие» кнопки-иконки под сообщениями (как у DeepSeek) */
     [data-testid="stChatMessage"] .stButton > button {
-        padding: 2px 8px !important;
-        font-size: 13px !important;
-        border-radius: 8px !important;
-        min-height: 28px !important;
-        background-color: rgba(255, 255, 255, 0.08) !important;
-        color: #ffffff !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        padding: 2px 6px !important;
+        min-height: 26px !important;
+        min-width: 26px !important;
+        background: transparent !important;
+        color: #9aa0b0 !important;
+        border: none !important;
+        box-shadow: none !important;
     }
     [data-testid="stChatMessage"] .stButton > button:hover {
-        background-color: rgba(255, 255, 255, 0.18) !important;
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stChatMessage"] .stButton > button:disabled {
+        opacity: 0.3 !important;
+    }
+
+    /* Счётчик вариантов: приглушённый текст, как в DeepSeek */
+    .variant-counter {
+        color: #9aa0b0;
+        font-size: 13px;
+        text-align: center;
+        user-select: none;
     }
 </style>
 """,
@@ -134,35 +141,31 @@ st.markdown(
 
 st.title("Мой личный ChatGPT")
 
-
-# --- ИНИЦИАЛИЗАЦИЯ ПЕРЕМЕННЫХ ---
+# --- СОСТОЯНИЕ ---
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
 if "edit_message_id" not in st.session_state:
     st.session_state.edit_message_id = None
-if "rerun_prompt" not in st.session_state:
-    st.session_state.rerun_prompt = None
+if "regenerate" not in st.session_state:
+    st.session_state.regenerate = False
 if "variant_indices" not in st.session_state:
     st.session_state.variant_indices = {}
 
 
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def group_messages(raw_history):
-    """Группирует подряд идущие ответы бота в варианты (версии) одного ответа."""
+    """Группирует подряд идущие ответы бота в варианты одного ответа."""
     grouped = []
     for msg in raw_history:
         if msg["role"] == "assistant" and grouped and grouped[-1]["role"] == "assistant":
             grouped[-1]["variants"].append(msg)
         else:
-            grouped.append(
-                {
-                    "role": msg["role"],
-                    "variants": [msg],
-                }
-            )
+            grouped.append({"role": msg["role"], "variants": [msg]})
     return grouped
 
 
 def load_history(chat_id):
+    """Загружает историю сообщений чата."""
     try:
         return (
             supabase.table("messages")
@@ -178,11 +181,29 @@ def load_history(chat_id):
         return []
 
 
-def create_chat_and_save_user(prompt_text):
-    """Создаёт новый чат (если нужно) и сохраняет сообщение пользователя."""
+def build_api_context(raw_history):
+    """Собирает контекст для API: выбранные варианты ответов бота + сообщения пользователя."""
+    messages = []
+    for item in group_messages(raw_history):
+        variants = item["variants"]
+        group_key = str(variants[0]["id"])
+        default_idx = len(variants) - 1 if item["role"] == "assistant" else 0
+        idx = min(
+            st.session_state.variant_indices.get(group_key, default_idx),
+            len(variants) - 1,
+        )
+        if content := variants[idx].get("content"):
+            messages.append({"role": item["role"], "content": content})
+    return messages
+
+
+def save_user_message(prompt_text):
+    """Создаёт чат при необходимости и сохраняет сообщение пользователя."""
     if st.session_state.current_chat_id is None:
         new_id = str(uuid.uuid4())
-        supabase.table("chats").insert({"id": new_id, "title": prompt_text[:50]}).execute()
+        supabase.table("chats").insert(
+            {"id": new_id, "title": prompt_text[:50]}
+        ).execute()
         st.session_state.current_chat_id = new_id
 
     supabase.table("messages").insert(
@@ -194,8 +215,8 @@ def create_chat_and_save_user(prompt_text):
     ).execute()
 
 
-def stream_assistant_reply(messages_for_api):
-    """Обращается к модели, показывает ответ потоком и сохраняет его в базу."""
+def generate_reply(messages_for_api):
+    """Запрашивает ответ у модели, показывает его потоком и сохраняет в базу."""
     with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
@@ -215,7 +236,6 @@ def stream_assistant_reply(messages_for_api):
             "content": response,
         }
     ).execute()
-
     st.rerun()
 
 
@@ -249,27 +269,25 @@ with st.sidebar:
             if st.button(
                 chat["title"],
                 icon=":material/chat_bubble_outline:",
-                key=f"chat_{chat['id']}",  # FIX: префикс, чтобы не пересекаться с другими key
+                key=f"chat_{chat['id']}",
                 use_container_width=True,
             ):
                 st.session_state.current_chat_id = chat["id"]
                 st.session_state.edit_message_id = None
+                st.session_state.variant_indices = {}
                 st.rerun()
 
-# --- ОСНОВНОЙ ЧАТ ---
+# --- ОТРИСОВКА ИСТОРИИ ---
 raw_history = []
-grouped_history = []
-
 if st.session_state.current_chat_id:
     raw_history = load_history(st.session_state.current_chat_id)
     grouped_history = group_messages(raw_history)
 
     for i, item in enumerate(grouped_history):
-        role = item["role"]
         variants = item["variants"]
 
         # --- Сообщение пользователя ---
-        if role == "user":
+        if item["role"] == "user":
             message = variants[0]
             with st.chat_message("user"):
                 if st.session_state.edit_message_id != message["id"]:
@@ -284,7 +302,6 @@ if st.session_state.current_chat_id:
                         st.rerun()
                 else:
                     new_text = st.text_area(
-                        "Редактировать",
                         value=message["content"],
                         key=f"text_{message['id']}",
                         label_visibility="collapsed",
@@ -298,7 +315,7 @@ if st.session_state.current_chat_id:
                                 {"content": new_text}
                             ).eq("id", message["id"]).execute()
 
-                            # Удаляем все последующие сообщения и варианты в ветке
+                            # Удаляем всё, что шло после этого сообщения (включая варианты)
                             for next_item in grouped_history[i + 1 :]:
                                 for v in next_item["variants"]:
                                     supabase.table("messages").delete().eq(
@@ -306,141 +323,105 @@ if st.session_state.current_chat_id:
                                     ).execute()
 
                             st.session_state.edit_message_id = None
-                            st.session_state.rerun_prompt = new_text
+                            st.session_state.regenerate = True
                             st.rerun()
                     with col2:
                         if st.button("Отмена", key=f"cancel_{message['id']}"):
                             st.session_state.edit_message_id = None
                             st.rerun()
 
-        # --- Сообщение ассистента (с переключением вариантов) ---
-        elif role == "assistant":
+        # --- Ответ бота с переключением вариантов ---
+        else:
             group_key = str(variants[0]["id"])
-            total_variants = len(variants)
+            total = len(variants)
 
-            # По умолчанию показываем самый последний сгенерированный вариант
             if group_key not in st.session_state.variant_indices:
-                st.session_state.variant_indices[group_key] = total_variants - 1
+                st.session_state.variant_indices[group_key] = total - 1
+            current_idx = min(st.session_state.variant_indices[group_key], total - 1)
 
-            current_idx = st.session_state.variant_indices[group_key]
-            if current_idx >= total_variants:
-                current_idx = total_variants - 1
-                st.session_state.variant_indices[group_key] = current_idx
-
-            active_message = variants[current_idx]
+            active = variants[current_idx]
 
             with st.chat_message("assistant"):
-                st.write(active_message["content"])
+                st.write(active["content"])
 
-                # Панель управления под ответом
                 is_last_block = i == len(grouped_history) - 1
-                has_multiple = total_variants > 1
 
-                if has_multiple or is_last_block:
-                    cols = st.columns([1, 1.3, 1, 1])
+                # Панель: [◀] [1/2] [▶] | [обновить] — как у DeepSeek
+                if total > 1 or is_last_block:
+                    width = 1 if total > 1 else 0
+                    cols = st.columns(
+                        [0.5, 1, 0.5] * width + [0.3] + [0.5]
+                        if total > 1
+                        else [0.3, 0.5]
+                    )
 
-                    # Стрелка влево — предыдущий вариант
-                    if has_multiple:
-                        with cols[0]:
+                    btn_idx = 0
+
+                    if total > 1:
+                        with cols[btn_idx]:
                             if st.button(
-                                "◀",
+                                "",
+                                icon=":material/chevron_left:",
                                 key=f"prev_{group_key}",
                                 disabled=(current_idx == 0),
+                                help="Предыдущий вариант",
                             ):
                                 st.session_state.variant_indices[group_key] = (
                                     current_idx - 1
                                 )
                                 st.rerun()
+                        btn_idx += 1
 
-                    # Счётчик вариантов (или подпись для одиночного ответа)
-                    if has_multiple:
-                        cols[1].write(f"Вариант {current_idx + 1} из {total_variants}")
+                        with cols[btn_idx]:
+                            st.markdown(
+                                f'<div class="variant-counter">{current_idx + 1}/{total}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        btn_idx += 1
 
-                    # Стрелка вправо — следующий вариант
-                    if has_multiple:
-                        with cols[2]:
+                        with cols[btn_idx]:
                             if st.button(
-                                "▶",
+                                "",
+                                icon=":material/chevron_right:",
                                 key=f"next_{group_key}",
-                                disabled=(current_idx == total_variants - 1),
+                                disabled=(current_idx == total - 1),
+                                help="Следующий вариант",
                             ):
                                 st.session_state.variant_indices[group_key] = (
                                     current_idx + 1
                                 )
                                 st.rerun()
+                        btn_idx += 1
 
-                    # Кнопка перегенерации — только на последнем блоке
                     if is_last_block:
-                        with cols[3]:
+                        with cols[btn_idx]:
                             if st.button(
-                                "🔄",
+                                "",
+                                icon=":material/refresh:",
                                 key=f"regen_{group_key}",
                                 help="Сгенерировать новый вариант",
                             ):
-                                # Собираем контекст для API
-                                grouped_for_api = group_messages(raw_history)
-                                messages_for_api = []
-                                for api_item in grouped_for_api:
-                                    api_variants = api_item["variants"]
-                                    api_key = str(api_variants[0]["id"])
-                                    default_idx = (
-                                        len(api_variants) - 1
-                                        if api_item["role"] == "assistant"
-                                        else 0
-                                    )
-                                    idx = min(
-                                        st.session_state.variant_indices.get(
-                                            api_key, default_idx
-                                        ),
-                                        len(api_variants) - 1,
-                                    )
-                                    if content := api_variants[idx].get("content"):
-                                        messages_for_api.append(
-                                            {
-                                                "role": api_item["role"],
-                                                "content": content,
-                                            }
-                                        )
-
-                                # Убираем с конца прошлые ответы бота,
-                                # чтобы последним был запрос пользователя
-                                while messages_for_api and messages_for_api[-1]["role"] != "user":
-                                    messages_for_api.pop()
-
-                                if not messages_for_api:
-                                    st.error("Нет запроса пользователя для перегенерации.")
-                                    st.stop()
-
-                                stream_assistant_reply(messages_for_api)
+                                st.session_state.regenerate = True
+                                st.rerun()
 
 # --- ВВОД НОВОГО СООБЩЕНИЯ ---
 prompt = st.chat_input("Введите сообщение...")
 
 if prompt:
-    create_chat_and_save_user(prompt)
+    save_user_message(prompt)
+    raw_history = load_history(st.session_state.current_chat_id)
+    generate_reply(build_api_context(raw_history))
+
+# --- ПОВТОРНАЯ ГЕНЕРАЦИЯ (после редактирования или по кнопке обновления) ---
+if st.session_state.regenerate:
+    st.session_state.regenerate = False
 
     raw_history = load_history(st.session_state.current_chat_id)
-    grouped_for_api = group_messages(raw_history)
-    messages_for_api = []
-    for item in grouped_for_api:
-        idx = 0 if item["role"] == "user" else len(item["variants"]) - 1
-        if content := item["variants"][idx].get("content"):
-            messages_for_api.append({"role": item["role"], "content": content})
+    messages_for_api = build_api_context(raw_history)
 
-    stream_assistant_reply(messages_for_api)
+    # Убираем с конца прошлые ответы бота, чтобы последним в контексте был запрос пользователя
+    while messages_for_api and messages_for_api[-1]["role"] != "user":
+        messages_for_api.pop()
 
-# --- ПОВТОРНАЯ ГЕНЕРАЦИЯ ПОСЛЕ РЕДАКТИРОВАНИЯ ---
-if st.session_state.rerun_prompt:
-    text = st.session_state.rerun_prompt
-    st.session_state.rerun_prompt = None
-    create_chat_and_save_user(text)
-
-    raw_history = load_history(st.session_state.current_chat_id)
-    grouped_for_api = group_messages(raw_history)
-    messages_for_api = []
-    for item in grouped_for_api:
-        idx = 0 if item["role"] == "user" else len(item["variants"]) - 1
-        if content := item["variants"][idx].get("content"):
-            messages_for_api.append({"role": item["role"], "content": content})
-
-    stream_assistant_reply(messages_for_api)
+    if messages_for_api:
+        generate_reply(messages_for_api)
