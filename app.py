@@ -51,7 +51,7 @@ st.markdown(
         background-color: #1e222d !important;
     }
 
-    /* Обычные кнопки в сайдбаре */
+    /* Кнопки чатов в сайдбаре */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #262b38 !important;
         color: #ffffff !important;
@@ -62,23 +62,21 @@ st.markdown(
         border-color: #4b556e !important;
     }
 
-    /* Маленькие иконки-кнопки рядом с чатами (булавка, крестик) */
-    .chat-actions .stButton > button {
-        padding: 0 !important;
+    /* Маленькие кнопки-действия (закрепить/удалить) */
+    .chat-action .stButton > button {
+        padding: 2px 8px !important;
         min-height: 26px !important;
-        min-width: 26px !important;
         background: transparent !important;
         color: #9aa0b0 !important;
-        border: none !important;
-        box-shadow: none !important;
+        border: 1px solid #363d4f !important;
         font-size: 13px !important;
     }
-    .chat-actions .stButton > button:hover {
+    .chat-action .stButton > button:hover {
         background-color: rgba(255, 255, 255, 0.08) !important;
         color: #ffffff !important;
     }
 
-    /* Тонкая полоска-разделитель между закреплёнными и обычными чатами */
+    /* Тонкая полоска между закреплёнными и обычными чатами */
     .thin-divider {
         border: none;
         border-top: 1px solid #2a2f3d;
@@ -240,7 +238,6 @@ def save_user_message(prompt_text):
 
 
 def generate_reply(messages_for_api):
-    """Запрашивает ответ у модели, показывает его потоком и сохраняет в базу."""
     with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
@@ -267,7 +264,6 @@ def run_regeneration():
     raw_history = load_history(st.session_state.current_chat_id)
     messages_for_api = build_api_context(raw_history)
 
-    # Последним в контексте должен быть запрос пользователя
     while messages_for_api and messages_for_api[-1]["role"] != "user":
         messages_for_api.pop()
 
@@ -282,7 +278,6 @@ def reset_chat_view():
 
 
 def delete_chat(chat_id):
-    """Удаляет чат и все его сообщения."""
     supabase.table("messages").delete().eq("session_id", chat_id).execute()
     supabase.table("chats").delete().eq("id", chat_id).execute()
     if st.session_state.current_chat_id == chat_id:
@@ -291,57 +286,48 @@ def delete_chat(chat_id):
     st.rerun()
 
 
-def render_chat_row(chat, pinned_view):
-    """Рисует строку одного чата в сайдбаре: название + кнопки булавки и удаления."""
+def render_chat_row(chat):
+    """Строка чата. Действия (закрепить/удалить) видны только у выбранного чата."""
     chat_id = chat["id"]
     is_pinned = bool(chat.get("pinned"))
     is_active = st.session_state.current_chat_id == chat_id
-    confirming = st.session_state.confirm_delete_id == chat_id
 
-    cols = st.columns([0.72, 0.14, 0.14], gap="small")
+    label = f"📌 {chat['title']}" if is_pinned else chat["title"]
 
-    with cols[0]:
-        label = f"📌 {chat['title']}" if is_pinned else chat["title"]
-        if st.button(
-            label,
-            key=f"chat_{chat_id}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-        ):
-            st.session_state.current_chat_id = chat_id
-            reset_chat_view()
-            st.rerun()
+    if st.button(label, key=f"chat_{chat_id}", use_container_width=True):
+        st.session_state.current_chat_id = chat_id
+        st.session_state.confirm_delete_id = None
+        reset_chat_view()
+        st.rerun()
 
-    with cols[1]:
-        pin_label = "🔒" if is_pinned else "📌"
-        if st.button(
-            pin_label,
-            key=f"pin_{chat_id}",
-            help="Открепить" if is_pinned else "Закрепить",
-        ):
-            supabase.table("chats").update(
-                {"pinned": not is_pinned}
-            ).eq("id", chat_id).execute()
-            st.rerun()
+    # Кнопки закрепления и удаления — только у активного (нажатого) чата
+    if is_active:
+        col1, col2 = st.columns([1, 1], gap="small")
 
-    with cols[2]:
-        if confirming:
-            if st.button("✓", key=f"confirm_{chat_id}", help="Подтвердить удаление"):
-                st.session_state.confirm_delete_id = None
-                delete_chat(chat_id)
-        else:
-            if st.button("✕", key=f"del_{chat_id}", help="Удалить чат"):
-                st.session_state.confirm_delete_id = chat_id
+        with col1:
+            if st.button(
+                ("🔓 Открепить" if is_pinned else "📌 Закрепить"),
+                key=f"pin_{chat_id}",
+                use_container_width=True,
+            ):
+                supabase.table("chats").update(
+                    {"pinned": not is_pinned}
+                ).eq("id", chat_id).execute()
                 st.rerun()
 
-    if confirming:
-        if st.button(
-            "Точно удалить этот чат?",
-            key=f"cancel_del_{chat_id}",
-            use_container_width=True,
-        ):
-            st.session_state.confirm_delete_id = None
-            st.rerun()
+        with col2:
+            if st.session_state.confirm_delete_id == chat_id:
+                if st.button(
+                    "Точно удалить?", key=f"confirm_{chat_id}",
+                    use_container_width=True,
+                ):
+                    delete_chat(chat_id)
+            else:
+                if st.button(
+                    "✕ Удалить", key=f"del_{chat_id}", use_container_width=True
+                ):
+                    st.session_state.confirm_delete_id = chat_id
+                    st.rerun()
 
 
 # --- БОКОВАЯ ПАНЕЛЬ ---
@@ -350,6 +336,7 @@ with st.sidebar:
 
     if st.button("Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
+        st.session_state.confirm_delete_id = None
         reset_chat_view()
         st.rerun()
 
@@ -374,14 +361,13 @@ with st.sidebar:
         regular_chats = [c for c in chats if not c.get("pinned")]
 
         for chat in pinned_chats:
-            render_chat_row(chat, pinned_view=True)
+            render_chat_row(chat)
 
-        # Тонкая полоска между закреплёнными и обычными чатами
         if pinned_chats and regular_chats:
             st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
 
         for chat in regular_chats:
-            render_chat_row(chat, pinned_view=False)
+            render_chat_row(chat)
 
 # --- ОТРИСОВКА ИСТОРИИ ---
 if st.session_state.current_chat_id:
