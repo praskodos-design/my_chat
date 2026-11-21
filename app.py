@@ -95,7 +95,7 @@ with st.sidebar:
                                                 try:
                                                         history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
                                                         except: history = []
-   
+                                                                
 for i, message in merate(history):
         with st.chat_message(message["role"]):
             if message["role"] == "user" and st.session_state.edit_message_id != message["id"]:
