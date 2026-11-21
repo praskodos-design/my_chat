@@ -68,7 +68,7 @@ if "current_chat_id" not in st.session_state:
 if "edit_message_id" not in st.session_state:
         st.session_state.edit_message_id = None
 if "rerun_prompt" not in st.session_state:
-    st.session_state.rerun_prompt = None
+        st.session_state.rerun_prompt = None
 
 with st.sidebar:
     st.header("Мои чаты")
