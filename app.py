@@ -12,10 +12,7 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1",
-)
+client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
@@ -109,15 +106,16 @@ st.markdown(
         color: #f0f2f6 !important;
     }
 
-    /* Маленькие «тонкие» кнопки-иконки под сообщениями (как у DeepSeek) */
+    /* Маленькие невидимые кнопки-иконки под сообщениями */
     [data-testid="stChatMessage"] .stButton > button {
         padding: 2px 6px !important;
         min-height: 26px !important;
-        min-width: 26px !important;
+        min-width: 30px !important;
         background: transparent !important;
         color: #9aa0b0 !important;
         border: none !important;
         box-shadow: none !important;
+        font-size: 15px !important;
     }
     [data-testid="stChatMessage"] .stButton > button:hover {
         background-color: rgba(255, 255, 255, 0.08) !important;
@@ -127,12 +125,13 @@ st.markdown(
         opacity: 0.3 !important;
     }
 
-    /* Счётчик вариантов: приглушённый текст, как в DeepSeek */
+    /* Счётчик вариантов */
     .variant-counter {
         color: #9aa0b0;
         font-size: 13px;
         text-align: center;
         user-select: none;
+        padding-top: 3px;
     }
 </style>
 """,
@@ -149,7 +148,9 @@ if "edit_message_id" not in st.session_state:
 if "regenerate" not in st.session_state:
     st.session_state.regenerate = False
 if "variant_indices" not in st.session_state:
-    st.session_state.variant_indices = {}
+    st.session_state.variant_indices = {}  # какой вариант выбрал пользователь стрелками
+if "variant_seen" not in st.session_state:
+    st.session_state.variant_seen = {}     # сколько вариантов группы видели в прошлый раз
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -165,7 +166,6 @@ def group_messages(raw_history):
 
 
 def load_history(chat_id):
-    """Загружает историю сообщений чата."""
     try:
         return (
             supabase.table("messages")
@@ -182,7 +182,7 @@ def load_history(chat_id):
 
 
 def build_api_context(raw_history):
-    """Собирает контекст для API: выбранные варианты ответов бота + сообщения пользователя."""
+    """Собирает контекст для API из выбранных вариантов ответов."""
     messages = []
     for item in group_messages(raw_history):
         variants = item["variants"]
@@ -198,7 +198,6 @@ def build_api_context(raw_history):
 
 
 def save_user_message(prompt_text):
-    """Создаёт чат при необходимости и сохраняет сообщение пользователя."""
     if st.session_state.current_chat_id is None:
         new_id = str(uuid.uuid4())
         supabase.table("chats").insert(
@@ -239,13 +238,28 @@ def generate_reply(messages_for_api):
     st.rerun()
 
 
+def run_regeneration():
+    """Убирает из контекста прошлые ответы бота и генерирует новый вариант."""
+    raw_history = load_history(st.session_state.current_chat_id)
+    messages_for_api = build_api_context(raw_history)
+
+    # Последним в контексте должен быть запрос пользователя
+    while messages_for_api and messages_for_api[-1]["role"] != "user":
+        messages_for_api.pop()
+
+    if messages_for_api:
+        generate_reply(messages_for_api)
+
+
 # --- БОКОВАЯ ПАНЕЛЬ ---
 with st.sidebar:
     st.header("Мои чаты")
 
-    if st.button("Новый чат", icon=":material/add:", use_container_width=True):
+    if st.button("Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
         st.session_state.edit_message_id = None
+        st.session_state.variant_indices = {}
+        st.session_state.variant_seen = {}
         st.rerun()
 
     st.divider()
@@ -268,17 +282,16 @@ with st.sidebar:
         for chat in chats:
             if st.button(
                 chat["title"],
-                icon=":material/chat_bubble_outline:",
                 key=f"chat_{chat['id']}",
                 use_container_width=True,
             ):
                 st.session_state.current_chat_id = chat["id"]
                 st.session_state.edit_message_id = None
                 st.session_state.variant_indices = {}
+                st.session_state.variant_seen = {}
                 st.rerun()
 
 # --- ОТРИСОВКА ИСТОРИИ ---
-raw_history = []
 if st.session_state.current_chat_id:
     raw_history = load_history(st.session_state.current_chat_id)
     grouped_history = group_messages(raw_history)
@@ -293,8 +306,7 @@ if st.session_state.current_chat_id:
                 if st.session_state.edit_message_id != message["id"]:
                     st.write(message["content"])
                     if st.button(
-                        "",
-                        icon=":material/edit:",
+                        "✎",
                         key=f"edit_{message['id']}",
                         help="Редактировать сообщение",
                     ):
@@ -315,7 +327,7 @@ if st.session_state.current_chat_id:
                                 {"content": new_text}
                             ).eq("id", message["id"]).execute()
 
-                            # Удаляем всё, что шло после этого сообщения (включая варианты)
+                            # Удаляем всё, что шло после этого сообщения
                             for next_item in grouped_history[i + 1 :]:
                                 for v in next_item["variants"]:
                                     supabase.table("messages").delete().eq(
@@ -335,74 +347,55 @@ if st.session_state.current_chat_id:
             group_key = str(variants[0]["id"])
             total = len(variants)
 
-            if group_key not in st.session_state.variant_indices:
-                st.session_state.variant_indices[group_key] = total - 1
-            current_idx = min(st.session_state.variant_indices[group_key], total - 1)
+            # Если вариантов стало больше — показываем самый свежий,
+            # иначе оставляем выбор пользователя (или тоже самый свежий)
+            seen = st.session_state.variant_seen.get(group_key)
+            if seen is None or total > seen:
+                idx = total - 1
+            else:
+                idx = min(st.session_state.variant_indices.get(group_key, total - 1), total - 1)
 
-            active = variants[current_idx]
+            st.session_state.variant_seen[group_key] = total
+            st.session_state.variant_indices[group_key] = idx
+
+            active = variants[idx]
+            is_last_block = i == len(grouped_history) - 1
 
             with st.chat_message("assistant"):
                 st.write(active["content"])
 
-                is_last_block = i == len(grouped_history) - 1
-
-                # Панель: [◀] [1/2] [▶] | [обновить] — как у DeepSeek
                 if total > 1 or is_last_block:
-                    width = 1 if total > 1 else 0
-                    cols = st.columns(
-                        [0.5, 1, 0.5] * width + [0.3] + [0.5]
-                        if total > 1
-                        else [0.3, 0.5]
-                    )
-
-                    btn_idx = 0
+                    cols = st.columns([0.4, 0.9, 0.4, 1.0]) if total > 1 else st.columns([1.0])
+                    c = 0
 
                     if total > 1:
-                        with cols[btn_idx]:
-                            if st.button(
-                                "",
-                                icon=":material/chevron_left:",
-                                key=f"prev_{group_key}",
-                                disabled=(current_idx == 0),
-                                help="Предыдущий вариант",
-                            ):
-                                st.session_state.variant_indices[group_key] = (
-                                    current_idx - 1
-                                )
-                                st.rerun()
-                        btn_idx += 1
+                        if cols[0].button(
+                            "‹", key=f"prev_{group_key}",
+                            disabled=(idx == 0), help="Предыдущий вариант",
+                        ):
+                            st.session_state.variant_indices[group_key] = idx - 1
+                            st.rerun()
 
-                        with cols[btn_idx]:
-                            st.markdown(
-                                f'<div class="variant-counter">{current_idx + 1}/{total}</div>',
-                                unsafe_allow_html=True,
-                            )
-                        btn_idx += 1
+                        cols[1].markdown(
+                            f'<div class="variant-counter">{idx + 1} / {total}</div>',
+                            unsafe_allow_html=True,
+                        )
 
-                        with cols[btn_idx]:
-                            if st.button(
-                                "",
-                                icon=":material/chevron_right:",
-                                key=f"next_{group_key}",
-                                disabled=(current_idx == total - 1),
-                                help="Следующий вариант",
-                            ):
-                                st.session_state.variant_indices[group_key] = (
-                                    current_idx + 1
-                                )
-                                st.rerun()
-                        btn_idx += 1
+                        if cols[2].button(
+                            "›", key=f"next_{group_key}",
+                            disabled=(idx == total - 1), help="Следующий вариант",
+                        ):
+                            st.session_state.variant_indices[group_key] = idx + 1
+                            st.rerun()
+                        c = 3
 
                     if is_last_block:
-                        with cols[btn_idx]:
-                            if st.button(
-                                "",
-                                icon=":material/refresh:",
-                                key=f"regen_{group_key}",
-                                help="Сгенерировать новый вариант",
-                            ):
-                                st.session_state.regenerate = True
-                                st.rerun()
+                        if cols[c].button(
+                            "⟳", key=f"regen_{group_key}",
+                            help="Сгенерировать ещё раз",
+                        ):
+                            st.session_state.regenerate = True
+                            st.rerun()
 
 # --- ВВОД НОВОГО СООБЩЕНИЯ ---
 prompt = st.chat_input("Введите сообщение...")
@@ -412,16 +405,7 @@ if prompt:
     raw_history = load_history(st.session_state.current_chat_id)
     generate_reply(build_api_context(raw_history))
 
-# --- ПОВТОРНАЯ ГЕНЕРАЦИЯ (после редактирования или по кнопке обновления) ---
+# --- ПОВТОРНАЯ ГЕНЕРАЦИЯ ---
 if st.session_state.regenerate:
     st.session_state.regenerate = False
-
-    raw_history = load_history(st.session_state.current_chat_id)
-    messages_for_api = build_api_context(raw_history)
-
-    # Убираем с конца прошлые ответы бота, чтобы последним в контексте был запрос пользователя
-    while messages_for_api and messages_for_api[-1]["role"] != "user":
-        messages_for_api.pop()
-
-    if messages_for_api:
-        generate_reply(messages_for_api)
+    run_regeneration()
