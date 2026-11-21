@@ -10,24 +10,20 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1"
-)
+# Настраиваем клиента в одну строку, чтобы никакие пробелы не мешали
+client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
 
 st.set_page_config(page_title="Мой ChatGPT", layout="wide")
 
-# --- МАГИЯ CSS ---
+# --- CSS СТИЛИ ---
 st.markdown("""
 <style>
-    /* 1. Убираем аватарки (иконки) */
     [data-testid="chatAvatarIcon-user"],
     [data-testid="chatAvatarIcon-assistant"],
     .stChatMessageAvatar {
         display: none !important;
     }
    
-    /* 2. Настраиваем контейнер сообщения */
     [data-testid="stChatMessage"] {
         padding: 15px 20px;
         border-radius: 15px;
@@ -36,9 +32,8 @@ st.markdown("""
         border: none !important;
     }
    
-    /* 3. Сообщения Пользователя (Синий фон, белый текст, справа) */
     [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-user"]) {
-        background-color: #2b7fff !important; /* Яркий синий */
+        background-color: #2b7fff !important;
         color: white !important;
         margin-left: auto !important;
         margin-right: 0 !important;
@@ -47,9 +42,8 @@ st.markdown("""
         color: white !important;
     }
 
-    /* 4. Сообщения Бота (Серый фон, черный текст, слева) */
     [data-testid="stChatMessage"]:has(> div > [data-testid="chatAvatarIcon-assistant"]) {
-        background-color: #f0f2f6 !important; /* Светло-серый */
+        background-color: #f0f2f6 !important;
         color: black !important;
         margin-right: auto !important;
         margin-left: 0 !important;
@@ -58,7 +52,6 @@ st.markdown("""
         color: black !important;
     }
 
-    /* 5. Делаем кнопки компактными */
     .stButton > button {
         padding: 2px 8px !important;
         font-size: 14px !important;
@@ -70,7 +63,6 @@ st.markdown("""
 
 st.title("Мой личный ChatGPT")
 
-# Инициализация
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
 if "edit_message_id" not in st.session_state:
@@ -78,7 +70,6 @@ if "edit_message_id" not in st.session_state:
 if "rerun_prompt" not in st.session_state:
     st.session_state.rerun_prompt = None
 
-# Боковая панель
 with st.sidebar:
     st.header("Мои чаты")
     if st.button("➕ Новый чат", use_container_width=True):
@@ -100,7 +91,6 @@ with st.sidebar:
                 st.session_state.edit_message_id = None
                 st.rerun()
 
-# Основной чат
 if st.session_state.current_chat_id:
     try:
         history = supabase.table("messages").select("*").eq("session_id", st.session_state.current_chat_id).order("created_at").execute().data
@@ -139,7 +129,6 @@ if st.session_state.current_chat_id:
                         st.session_state.rerun_prompt = prev_user_msg
                         st.rerun()
 
-# Логика отправки
 prompt = st.chat_input("Напишите сообщение...") or st.session_state.rerun_prompt
 
 if prompt:
