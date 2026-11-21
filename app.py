@@ -64,7 +64,7 @@ st.markdown("""
 st.title("Мой личный ChatGPT")
 
 if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = None
+        st.session_state.current_chat_id = None
 if "edit_message_id" not in st.session_state:
     st.session_state.edit_message_id = None
 if "rerun_prompt" not in st.session_state:
