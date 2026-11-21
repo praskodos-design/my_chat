@@ -72,24 +72,24 @@ if "rerun_prompt" not in st.session_state:
 
 with st.sidebar:
         st.header("Мои чаты")
-    if st.button("➕ Новый чат", use_container_width=True):
-        st.session_state.current_chat_id = None
-        st.session_state.edit_message_id = None
-        st.rerun()
-    st.divider()
-   
-    try:
-        chats = supabase.table("chats").select("*").order("created_at", desc=True).execute().data
-    except: chats = []
-       
-    if not chats:
-        st.write("История пуста.")
-    else:
-        for chat in chats:
-            if st.button(f"💬 {chat['title']}", key=chat['id'], use_container_width=True):
-                st.session_state.current_chat_id = chat['id']
-                st.session_state.edit_message_id = None
-                st.rerun()
+        if st.button("➕ Новый чат", use_container_width=True):
+                st.session_state.current_chat_id = None
+                st.session_state.edit_message_id = None
+                st.rerun()
+                st.divider()
+                
+                try:
+                        chats = supabase.table("chats").select("*").order("created_at", desc=True).execute().data
+                        except: chats = []
+                                
+                if not chats:
+                        st.write("История пуста.")
+                else:
+                        for chat in chats:
+                                if st.button(f"💬 {chat['title']}", key=chat['id'], use_container_width=True):
+                                        st.session_state.current_chat_id = chat['id']
+                                        st.session_state.edit_message_id = None
+st.rerun()
 
 if st.session_state.current_chat_id:
     try:
