@@ -97,14 +97,14 @@ st.markdown(
     }
 
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
         background-color: #262934 !important;
         color: #f0f2f6 !important;
         margin-right: auto !important;
         margin-left: 0 !important;
     }
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) *,
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) * {
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) * {
         color: #f0f2f6 !important;
     }
 
@@ -153,6 +153,85 @@ st.markdown(
 
 st.title("Мой личный ChatGPT")
 
+
+# =====================================================
+# АВТОРИЗАЦИЯ (Supabase Auth)
+# =====================================================
+def _clear_auth():
+    for key in ("sb_access_token", "sb_refresh_token", "user_id", "user_email"):
+        st.session_state.pop(key, None)
+
+
+def restore_session() -> bool:
+    """Восстанавливает сессию по сохранённым токенам и обновляет их."""
+    if "sb_access_token" not in st.session_state:
+        return False
+    try:
+        resp = supabase.auth.set_session(
+            st.session_state["sb_access_token"],
+            st.session_state["sb_refresh_token"],
+        )
+    except Exception:
+        _clear_auth()
+        return False
+
+    if resp.session is None:
+        _clear_auth()
+        return False
+
+    # Токены могли обновиться — сохраняем свежие
+    st.session_state["sb_access_token"] = resp.session.access_token
+    st.session_state["sb_refresh_token"] = resp.session.refresh_token
+    st.session_state["user_id"] = resp.user.id
+    st.session_state["user_email"] = resp.user.email
+    return True
+
+
+def auth_screen():
+    st.subheader("Вход")
+    mode = st.radio("Действие", ["Войти", "Зарегистрироваться"], horizontal=True)
+
+    email = st.text_input("Email")
+    password = st.text_input("Пароль", type="password")
+
+    if st.button(mode, type="primary", use_container_width=True):
+        if not email or not password:
+            st.error("Заполните email и пароль")
+            return
+        try:
+            if mode == "Войти":
+                resp = supabase.auth.sign_in_with_password(
+                    {"email": email, "password": password}
+                )
+            else:
+                resp = supabase.auth.sign_up({"email": email, "password": password})
+                if resp.session is None:
+                    st.warning(
+                        "Аккаунт создан, но требуется подтверждение по email. "
+                        "Проверьте почту или попросите владельца проекта отключить "
+                        "подтверждение в настройках Supabase."
+                    )
+                    return
+        except Exception as e:
+            msg = str(getattr(e, "message", "") or e)
+            if "already registered" in msg.lower() or "already exists" in msg.lower():
+                st.error("Такой email уже зарегистрирован — попробуйте войти")
+            elif "invalid login" in msg.lower():
+                st.error("Неверный email или пароль")
+            else:
+                st.error(f"Ошибка авторизации: {msg}")
+            return
+
+        session = resp.session
+        st.session_state["sb_access_token"] = session.access_token
+        st.session_state["sb_refresh_token"] = session.refresh_token
+        st.session_state["user_id"] = resp.user.id
+        st.session_state["user_email"] = resp.user.email
+        st.rerun()
+
+    st.stop()
+
+
 # --- СОСТОЯНИЕ ---
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
@@ -166,6 +245,11 @@ if "variant_seen" not in st.session_state:
     st.session_state.variant_seen = {}
 if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
+
+if not restore_session():
+    auth_screen()
+
+OWNER = st.session_state["user_id"]
 
 
 def show_db_error(where: str, e: Exception):
@@ -225,22 +309,22 @@ def build_api_context(raw_history):
 
 
 def create_chat(title: str) -> str:
-    """Создаёт чат; если колонки pinned нет — повторяет вставку без неё."""
+    """Создаёт чат, привязанный к вошедшему пользователю."""
     new_id = str(uuid.uuid4())
     try:
         supabase.table("chats").insert(
-            {"id": new_id, "title": title[:50], "pinned": False}
+            {"id": new_id, "title": title[:50], "pinned": False, "owner": OWNER}
         ).execute()
     except Exception as e:
         err_text = str(getattr(e, "message", "") or e)
-        if "pinned" in err_text.lower():
+        if "pinned" in err_text.lower() or "owner" in err_text.lower():
             # Колонки нет в базе — вставляем без неё
             try:
                 supabase.table("chats").insert(
                     {"id": new_id, "title": title[:50]}
                 ).execute()
             except Exception as e2:
-                show_db_error("create_chat (без pinned)", e2)
+                show_db_error("create_chat", e2)
         else:
             show_db_error("create_chat", e)
     return new_id
@@ -377,10 +461,17 @@ def render_chat_row(chat):
 # --- БОКОВАЯ ПАНЕЛЬ ---
 with st.sidebar:
     st.header("Мои чаты")
+    st.caption(f"Вы вошли как {st.session_state['user_email']}")
 
     if st.button("Новый чат", use_container_width=True):
         st.session_state.current_chat_id = None
         st.session_state.confirm_delete_id = None
+        reset_chat_view()
+        st.rerun()
+
+    if st.button("Выйти", use_container_width=True):
+        _clear_auth()
+        st.session_state.current_chat_id = None
         reset_chat_view()
         st.rerun()
 
@@ -390,6 +481,7 @@ with st.sidebar:
         chats = (
             supabase.table("chats")
             .select("*")
+            .eq("owner", OWNER)  # только чаты вошедшего пользователя
             .order("created_at", desc=True)
             .execute()
             .data
