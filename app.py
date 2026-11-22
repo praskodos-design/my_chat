@@ -197,7 +197,8 @@ def auth_screen():
     if st.button(mode, type="primary", use_container_width=True):
         if not email or not password:
             st.error("Заполните email и пароль")
-            return
+            st.stop()
+
         try:
             if mode == "Войти":
                 resp = supabase.auth.sign_in_with_password(
@@ -211,7 +212,7 @@ def auth_screen():
                         "Проверьте почту или попросите владельца проекта отключить "
                         "подтверждение в настройках Supabase."
                     )
-                    return
+                    st.stop()
         except Exception as e:
             msg = str(getattr(e, "message", "") or e)
             if "already registered" in msg.lower() or "already exists" in msg.lower():
@@ -220,7 +221,7 @@ def auth_screen():
                 st.error("Неверный email или пароль")
             else:
                 st.error(f"Ошибка авторизации: {msg}")
-            return
+            st.stop()
 
         session = resp.session
         st.session_state["sb_access_token"] = session.access_token
